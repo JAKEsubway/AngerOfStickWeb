@@ -1,0 +1,50 @@
+name: build
+on: [push, workflow_dispatch]
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unzip project
+        run: |
+          mkdir proj
+          for z in *.zip; do
+            if unzip -Z1 "$z" | grep -x "android/build.gradle" > /dev/null; then unzip -q "$z" -d proj; break; fi
+          done
+          test -f proj/android/build.gradle
+          cp proj/shared/game.html proj/android/app/src/main/assets/game.html
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: 8.9 }
+      - run: cd proj/android && gradle assembleRelease
+      - uses: actions/upload-artifact@v4
+        with: { name: apk, path: proj/android/app/build/outputs/apk/release/*.apk }
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unzip project
+        run: |
+          mkdir proj
+          for z in *.zip; do
+            if unzip -Z1 "$z" | grep -x "ios/project.yml" > /dev/null; then unzip -q "$z" -d proj; break; fi
+          done
+          test -f proj/ios/project.yml
+          cp proj/shared/game.html proj/ios/Resources/game.html
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd proj/ios && xcodegen generate
+      - name: Build (unsigned)
+        run: |
+          cd proj/ios
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package ipa
+        run: |
+          cd proj/ios
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -qry ../../app-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with: { name: ipa, path: app-unsigned.ipa }
